@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+import sys
+import argparse
+
+from heptrkxcli.events import events 
+from heptrkxcli.process import process_particles
+from heptrkxcli.visualize_track import export_track
+from heptrkxcli.prepare import prepare
+from heptrkxcli.config import config_file
+
+def main():
+
+    # Top level command parser parses verb subcommands and redirects them to
+    # the appropriate subcommand parser
+    parser = argparse.ArgumentParser(usage ='heptrkx <command> [<args>]')
+    parser.add_argument('command', default=None)
+    args = parser.parse_args(sys.argv[1:2])
+
+    if args.command == 'status':
+        config = config_file()
+        print(config)
+    elif args.command == 'prepare':
+        prepare()
+    elif args.command == 'train':
+        print('info: train not implemented')
+    else:
+        print('error: unknown command {}'.format(args.command))
+
+if __name__ == '__main__':
+    main()

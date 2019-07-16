@@ -7,9 +7,13 @@ setup(name="heptrkx-cli",
     description="Command Line Interface for HEP.trkx project",
     author="Thomas Barrett",
     author_email="tbarrett@caltech.edu",
-    scripts=['bin/heptrkx-cli'],
+    scripts=['bin/heptrkx'],
+    packages=['heptrkxcli'],
     install_requires=[
-        'trackml'
+        'trackml',
+        'pyyaml',
+        'numpy',
+        'pandas',
     ],
     dependency_links=[
         'https://github.com/LAL/trackml-library/tarball/master#egg=trackml-library',

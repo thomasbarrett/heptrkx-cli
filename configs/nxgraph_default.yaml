@@ -1,0 +1,17 @@
+prod_name: nxgraph_med_proper_001
+output_dir: ../.heptrkx/trained_network
+data:
+    name: hitgraphs
+    input_dir: ../.heptrkx/hitgraphs
+
+model:
+    name: default
+
+train:
+    log_name: big_new_edge_features.log
+    time_lapse:  120  # how often save checkpoint in seconds
+    batch_size: 2
+    iterations: 30000
+    iter_per_job: 2000
+    n_iters: 10
+    learning_rate: 0.001
