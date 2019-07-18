@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 import sys
 import argparse
+import os
 
 from heptrkxcli.events import events 
+from heptrkxcli.events import hitgraph_truths
 from heptrkxcli.process import process_particles
 from heptrkxcli.visualize_track import export_track
 from heptrkxcli.prepare import prepare
 from heptrkxcli.config import config_file
+from heptrkxcli.visualize import visualize_hitgraph
+from heptrkxcli.hitgraph import load_graph
 
 def main():
 
@@ -21,6 +25,11 @@ def main():
         print(config)
     elif args.command == 'prepare':
         prepare()
+    elif args.command == 'visualize':
+        graph_paths = hitgraph_truths()
+        for index, graph_path in enumerate(graph_paths):
+            graph = load_graph(graph_path)
+            visualize_hitgraph(index, graph)
     elif args.command == 'train':
         print('info: train not implemented')
     else:

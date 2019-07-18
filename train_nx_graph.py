@@ -2,6 +2,7 @@
 import argparse
 import os
 import glob
+import time
 import numpy as np
 
 import tensorflow as tf
@@ -13,26 +14,29 @@ from nx_graph.utils_train import compute_matrics
 from nx_graph.utils_train import load_config
 from nx_graph.model import SegmentClassifier
 from heptrkxcli.hitgraph import load_graph
+from heptrkxcli.visualize import visualize_hitgraph
 
-def batch_iterator(base_dir, n_batch):
+def batch_iterator(base_dir, n_batch, test=False):
     '''
     Iterates through batches of size n_batch found at directory base_dir
     '''
     input_files = glob.glob(os.path.join(os.path.join(base_dir,'input'),'*'))
     target_files = glob.glob(os.path.join(os.path.join(base_dir,'target'),'*'))
+    input_files.sort()
+    target_files.sort()
     n_events = len(target_files)
-    batch_count = int(n_events/n_batch)
+    batch_count = int(n_events/n_batch)    
 
     for batch_index in range(0, batch_count):
+        input_graphs = []
+        target_graphs = []
         for file_index in range(0, n_batch):
-            input_graphs = []
-            target_graphs = []
             index = batch_index * n_batch + file_index
             input_graph = load_graph(input_files[index])
             target_graph = load_graph(target_files[index])
             input_graphs.append(input_graph)
             target_graphs.append(target_graph)
-        yield input_graphs, target_graphs
+        yield batch_index, batch_count, input_graphs, target_graphs
     
     return
 
@@ -63,7 +67,7 @@ def main():
     # They are automatically generated from the first graph in the first batch.
     # By assigning force_dynamic_num_graphs=True, we ensure the the placeholders
     # accepts graphs of any size.
-    input_graphs, target_graphs = batch_iterator(base_dir, batch_size).__next__()
+    _, _, input_graphs, target_graphs = batch_iterator(base_dir, batch_size).__next__()
     input_ph = utils_tf.placeholders_from_data_dicts(input_graphs[0:1], force_dynamic_num_graphs=True)
     target_ph = utils_tf.placeholders_from_data_dicts(target_graphs[0:1], force_dynamic_num_graphs=True)
 
@@ -96,11 +100,14 @@ def main():
     # https://www.tensorflow.org/guide/variables
     sess.run(tf.global_variables_initializer())
 
+    output_index = 0 
+    last_output = 0
+
     # We will iterate through our dataset many times to train.
     for iteration in range(0, num_training_iterations):
         
         # Iterate through all of the batches and retrieve batch data accordingly.
-        for input_batch, target_batch in batch_iterator(base_dir, batch_size):
+        for batch_index, batch_count, input_batch, target_batch in batch_iterator(base_dir, batch_size):
             
             # Turn our data dictionary into a proper graphs.GraphsTuple
             # object for use with graph_nets library. 
@@ -131,6 +138,66 @@ def main():
                 "loss": training_loss,
                 "outputs": model_outputs
             }, feed_dict=feed_dict)
+
+            current_time = time.time()
+            output_time_lapse = current_time - last_output
+            
+            if output_time_lapse > 20:
+                last_output = current_time
+                _, _, input_batch, target_batch = batch_iterator(base_dir, 1).__next__()
+                input_graphs = utils_np.data_dicts_to_graphs_tuple(input_batch)
+                target_graphs = utils_np.data_dicts_to_graphs_tuple(target_batch)
+                input_graphs = utils_tf.make_runnable_in_session(input_graphs)
+                target_graphs = utils_tf.make_runnable_in_session(target_graphs)
+                feed_dict = utils_tf.get_feed_dict(input_ph, input_graphs)
+                feed_dict.update(utils_tf.get_feed_dict(target_ph, target_graphs))
+
+                print('\repoch: {} progress: {} loss: {:.4f}'.format(iteration, batch_index/batch_count, train_values['loss']))  
+
+                train_values = sess.run({
+                    "step": training_optimizer,
+                    "target": target_ph,
+                    "loss": training_loss,
+                    "outputs": model_outputs
+                }, feed_dict=feed_dict)
+
+                visualize_hitgraph('weights', output_index, {
+                    'nodes': target_batch[0]['nodes'],
+                    'edges': train_values['outputs'][0].edges,
+                    'senders': target_batch[0]['senders'],
+                    'receivers': target_batch[0]['receivers']
+                })
+
+                target = np.transpose(target_batch[0]['edges'])[0]
+                    
+                for filter_index in range(0,5):
+                    result = np.transpose(np.where(train_values['outputs'][0].edges > 0.25 + 0.05 * filter_index, 1, 0))[0]
+                    false_positive = np.where(result > target, 1, 0)
+                    false_negative = np.where(result < target, 1, 0)
+
+                    visualize_hitgraph('filter{}'.format(25 + 5 * filter_index), output_index, {
+                        'nodes': target_batch[0]['nodes'],
+                        'edges': result,
+                        'senders': target_batch[0]['senders'],
+                        'receivers': target_batch[0]['receivers']
+                    })
+
+                    visualize_hitgraph('false_positive{}'.format(25 + 5 * filter_index), output_index, {
+                        'nodes': target_batch[0]['nodes'],
+                        'edges': false_positive,
+                        'senders': target_batch[0]['senders'],
+                        'receivers': target_batch[0]['receivers']
+                    })
+
+                    visualize_hitgraph('false_negative{}'.format(25 + 5 * filter_index), output_index, {
+                        'nodes': target_batch[0]['nodes'],
+                        'edges': false_negative,
+                        'senders': target_batch[0]['senders'],
+                        'receivers': target_batch[0]['receivers']
+                    })
+
+                output_index += 1
+
 
     sess.close()
 

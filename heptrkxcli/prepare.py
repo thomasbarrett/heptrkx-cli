@@ -2,6 +2,7 @@
 import os
 import logging
 import glob
+from multiprocessing import Pool
 
 # Externals
 import numpy as np
@@ -44,7 +45,7 @@ def filter_segments(hits1, hits2, phi_slope_max, z0_max):
     DataFrame hit label-indices in hits1 and hits2, respectively.
     """
     # Start with all possible pairs of hits
-    keys = ['r', 'phi', 'z', 'particle_id']
+    keys = ['r', 'phi', 'z', 'theta','particle_id']
     a = hits1[keys].assign(temp=0).reset_index()
     b = hits2[keys].assign(temp=0).reset_index()
     hit_pairs = a.merge(b, on='temp', suffixes=('_1', '_2')).drop(columns=['temp'])
@@ -55,10 +56,9 @@ def filter_segments(hits1, hits2, phi_slope_max, z0_max):
         dphi[dphi < -np.pi] += 2*np.pi
         return dphi
 
- 
-
     # Compute line through the points
     dphi = calc_dphi(hit_pairs.phi_1, hit_pairs.phi_2)
+    dtheta = calc_dphi(hit_pairs.theta_1, hit_pairs.theta_2)
     dz = hit_pairs.z_2 - hit_pairs.z_1
     dr = hit_pairs.r_2 - hit_pairs.r_1
     phi_slope = dphi / dr
@@ -67,13 +67,14 @@ def filter_segments(hits1, hits2, phi_slope_max, z0_max):
     hit_pairs = hit_pairs.assign(
         t = (hit_pairs['particle_id_1'] == hit_pairs['particle_id_2'])*1,
         dphi = dphi,
+        dtheta = dtheta,
         dr = dr,
         dz = dz
     )
 
     # Filter segments according to criteria
     good_seg_mask = (phi_slope.abs() < phi_slope_max) & (z0.abs() < z0_max)
-    return hit_pairs[['index_1', 'index_2', 't','dr','dphi','dz']][good_seg_mask]
+    return hit_pairs[['index_1', 'index_2', 't','dr','dphi','dtheta','dz']][good_seg_mask]
 
 def select_hits(hits, truth, particles, sensors=None, pt_min=0):
     """
@@ -160,9 +161,11 @@ def choose_truth(hits):
 
 def normalize_nodes(hits, config):
     phi_mean = hits['phi'].mean()
-    hits = hits.assign(phi = hits.phi - phi_mean)
+    theta_mean = hits['theta'].mean()
+    hits = hits.assign(phi = hits.phi - phi_mean, theta = hits.theta - theta_mean)
     phi_sections = config['n_phi_sections']
-    return hits[['r', 'phi', 'z']] / [1000, 2 * np.pi / phi_sections, 1000]
+    theta_sections = config['n_theta_sections']
+    return hits[['r', 'phi', 'theta', 'z']] / [1000, 2 * np.pi / phi_sections, 2 * np.pi / theta_sections, 1000]
 
 def choose_edges(hits, layer_pairs, config):
     '''
@@ -230,7 +233,7 @@ def process_event(prefix, config):
         input_path = os.path.join(os.path.join(output_dir, 'input'), '%s_g%03i' % (base_prefix, index))
         save_graph(input_path, {
             'nodes': nodes.to_numpy(),
-            'edges': edges[['dr','dphi','dz']].to_numpy(),
+            'edges': edges[['dr','dphi','dtheta','dz']].to_numpy(),
             'senders': edges['index_1'].to_numpy(),
             'receivers': edges['index_2'].to_numpy()
         })
@@ -251,18 +254,22 @@ def prepare():
 
     # Load configuration
     config = config_file()['preprocessing']
+    n_events = config['n_events']
     outdir = config['outdir']
     outdir_input = os.path.join(config['outdir'],'input')
     outdir_target = os.path.join(config['outdir'],'target')
 
     file_prefixes = events()
+    file_prefixes.sort()
+    file_prefixes = file_prefixes[:n_events]
+
     os.makedirs(outdir, exist_ok=True)
     os.makedirs(outdir_input, exist_ok=True)
     os.makedirs(outdir_target, exist_ok=True)
 
     logging.info('Writing outputs to ' + outdir)
 
-    for prefix in file_prefixes:
-        process_event(prefix, config)
+    pool = Pool(20)
+    pool.starmap(process_event, zip(file_prefixes, [config] * n_events), chunksize=10)
 
     logging.info('All done!')

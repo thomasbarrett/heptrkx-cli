@@ -12,5 +12,13 @@ def events():
     events = list(map(lambda hit: hit.split('-hits.csv')[0], sorted(hits)))
     return events
 
+def hitgraph_truths():
+    graph_dir = config_file()['preprocessing']['outdir']
+    graph_dir = os.path.join(graph_dir, 'target')
+    graph_pattern = os.path.join(graph_dir,'*')
+    graphs = glob.glob(graph_pattern)
+    graphs.sort()
+    return graphs
+
 def display_event_summary():
     print('events: %i' % len(events()))
