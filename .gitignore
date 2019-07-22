@@ -3,3 +3,4 @@ build/
 dist/
 heptrkx_cli.egg-info
 figures/
+results/

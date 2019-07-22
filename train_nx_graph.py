@@ -2,9 +2,10 @@
 import argparse
 import os
 import glob
+import csv
 import time
 import numpy as np
-
+import matplotlib.pyplot as plt
 import tensorflow as tf
 from graph_nets import utils_tf
 from graph_nets import utils_np
@@ -24,8 +25,19 @@ def batch_iterator(base_dir, n_batch, test=False):
     target_files = glob.glob(os.path.join(os.path.join(base_dir,'target'),'*'))
     input_files.sort()
     target_files.sort()
-    n_events = len(target_files)
+    n_events = len(target_files) - 100
     batch_count = int(n_events/n_batch)    
+
+    if test:
+        input_graphs = []
+        target_graphs = []
+        for file_index in range(0, n_batch):
+            index = n_events + file_index
+            input_graph = load_graph(input_files[index])
+            target_graph = load_graph(target_files[index])
+            input_graphs.append(input_graph)
+            target_graphs.append(target_graph) 
+        yield 0, 0, input_graphs, target_graphs
 
     for batch_index in range(0, batch_count):
         input_graphs = []
@@ -41,12 +53,16 @@ def batch_iterator(base_dir, n_batch, test=False):
     return
 
 def main():
+    
     # A bunch of configuration stuff to clean up...
     parser = argparse.ArgumentParser(description='Train nx-graph with configurations')
     add_arg = parser.add_argument
-    add_arg('config',  nargs='?', default='configs/nxgraph_default.yaml')
+    add_arg('name', nargs='?', default='unnamed')
     args = parser.parse_args()
-    config = load_config(args.config)
+
+    results_dir = 'results/{}'.format(args.name)
+    os.makedirs(results_dir, exist_ok=True)
+    config = load_config('configs/nxgraph_default.yaml')
     base_dir = config['data']['input_dir']
     config_tr = config['train']
     log_every_seconds       = config_tr['time_lapse']
@@ -79,7 +95,9 @@ def main():
     #   plays into this. I need to figure out the details.
     # -  Finally, we will minimize training loss using the Adam Optimizer algorithm. 
     model_outputs = SegmentClassifier()(input_ph, num_processing_steps_tr)
-    edge_losses = [tf.losses.log_loss(target_ph.edges, output.edges) for output in model_outputs]
+    
+    edge_losses = [tf.losses.log_loss(tf.transpose(target_ph.edges)[0], tf.transpose(output.edges)[0]) for output in model_outputs]
+
     training_loss = tf.divide(tf.reduce_sum(edge_losses), num_processing_steps_tr)
     training_optimizer = tf.train.AdamOptimizer(learning_rate).minimize(training_loss)
 
@@ -94,6 +112,9 @@ def main():
     # https://www.tensorflow.org/guide/graphs
     sess = tf.Session()
  
+    # Create session saver
+    saver = tf.train.Saver()
+
     # Our computation graph uses global variables, so we are required to
     # initialize them for the first pass. See the following link for more
     # information on Tensorflow variables
@@ -101,7 +122,7 @@ def main():
     sess.run(tf.global_variables_initializer())
 
     output_index = 0 
-    last_output = 0
+    last_output = time.time()
 
     # We will iterate through our dataset many times to train.
     for iteration in range(0, num_training_iterations):
@@ -139,12 +160,16 @@ def main():
                 "outputs": model_outputs
             }, feed_dict=feed_dict)
 
+            # Compute the time lapse from last save-evaluate-visualize action
             current_time = time.time()
             output_time_lapse = current_time - last_output
             
-            if output_time_lapse > 20:
+            if output_time_lapse > 120:
                 last_output = current_time
-                _, _, input_batch, target_batch = batch_iterator(base_dir, 1).__next__()
+
+                # Create a feed dict with 10 training events. These events have not been
+                # used during testing, so 
+                _, _, input_batch, target_batch = batch_iterator(base_dir, 10, test=True).__next__()
                 input_graphs = utils_np.data_dicts_to_graphs_tuple(input_batch)
                 target_graphs = utils_np.data_dicts_to_graphs_tuple(target_batch)
                 input_graphs = utils_tf.make_runnable_in_session(input_graphs)
@@ -152,49 +177,49 @@ def main():
                 feed_dict = utils_tf.get_feed_dict(input_ph, input_graphs)
                 feed_dict.update(utils_tf.get_feed_dict(target_ph, target_graphs))
 
-                print('\repoch: {} progress: {} loss: {:.4f}'.format(iteration, batch_index/batch_count, train_values['loss']))  
-
                 train_values = sess.run({
-                    "step": training_optimizer,
                     "target": target_ph,
                     "loss": training_loss,
                     "outputs": model_outputs
                 }, feed_dict=feed_dict)
 
-                visualize_hitgraph('weights', output_index, {
-                    'nodes': target_batch[0]['nodes'],
-                    'edges': train_values['outputs'][0].edges,
-                    'senders': target_batch[0]['senders'],
-                    'receivers': target_batch[0]['receivers']
-                })
+                cutoff_list = []
+                purity_list = []
+                efficiency_list = []
 
-                target = np.transpose(target_batch[0]['edges'])[0]
-                    
-                for filter_index in range(0,5):
-                    result = np.transpose(np.where(train_values['outputs'][0].edges > 0.25 + 0.05 * filter_index, 1, 0))[0]
-                    false_positive = np.where(result > target, 1, 0)
-                    false_negative = np.where(result < target, 1, 0)
+                # Compute purity and efficiency for every cutoff from 0 to 1 in steps of 0.01
+                for filter_cutoff in np.linspace(0,1,100):
+                    target = np.concatenate([ np.transpose(target_batch[i]['edges'])[0] for i in range(0,10)])
+                    result = np.transpose(np.where(train_values['outputs'][-1].edges > filter_cutoff, 1, 0))[0]
+                    correct = np.sum(np.where(np.logical_and(result == target, result == np.ones(result.shape)), 1, 0))
+                    purity = correct / np.sum(result) if np.sum(result) != 0 else 1.0
+                    purity_list.append(purity)
+                    efficiency = correct/ np.sum(target)
+                    efficiency_list.append(efficiency)
+                    cutoff_list.append(filter_cutoff)
 
-                    visualize_hitgraph('filter{}'.format(25 + 5 * filter_index), output_index, {
-                        'nodes': target_batch[0]['nodes'],
-                        'edges': result,
-                        'senders': target_batch[0]['senders'],
-                        'receivers': target_batch[0]['receivers']
-                    })
+                # Create purity-efficiency plot and save to folder
+                plt.figure()
+                plt.plot(purity_list, efficiency_list)
+                plt.axis([0, 1, 0, 1])
+                plt.xlabel('Purity')
+                plt.ylabel('Efficiency')
+                os.makedirs(os.path.join(results_dir, 'figures'), exist_ok=True)
+                plt.savefig(os.path.join(results_dir, 'figures/purity_vs_efficiency{:02d}.png'.format(output_index)))
+                plt.close()
 
-                    visualize_hitgraph('false_positive{}'.format(25 + 5 * filter_index), output_index, {
-                        'nodes': target_batch[0]['nodes'],
-                        'edges': false_positive,
-                        'senders': target_batch[0]['senders'],
-                        'receivers': target_batch[0]['receivers']
-                    })
+                # Write the purity-efficiency
+                csv_path = os.path.join(results_dir, 'figures/purity_vs_efficiency{:02d}.csv'.format(output_index))
+                with open(csv_path, 'w') as csvfile:
+                    csv_writer = csv.writer(csvfile)
+                    csv_writer.writerow(['cutoff','purity', 'efficiency'])
+                    for (cutoff, purity, efficiency) in zip(cutoff_list, purity_list, efficiency_list):
+                        csv_writer.writerow([cutoff, purity, efficiency])
 
-                    visualize_hitgraph('false_negative{}'.format(25 + 5 * filter_index), output_index, {
-                        'nodes': target_batch[0]['nodes'],
-                        'edges': false_negative,
-                        'senders': target_batch[0]['senders'],
-                        'receivers': target_batch[0]['receivers']
-                    })
+                os.makedirs(os.path.join(results_dir, 'models'), exist_ok=True)
+                saver.save(sess, os.path.join(results_dir, 'models/model{}.ckpt'.format(output_index)))
+
+                print('\repoch: {} progress: {:.4f} loss: {:.4f}'.format(iteration, batch_index/batch_count, train_values['loss']))  
 
                 output_index += 1
 

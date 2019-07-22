@@ -1,6 +1,7 @@
 from PIL import Image, ImageDraw, ImageFont
 from heptrkxcli.config import config_file
 import numpy as np
+import os
 
 def transform_coordinates(x, y):
     return (x+1000,y+1000)
@@ -29,20 +30,20 @@ def visualize_hitgraph(folder, name, hit_graph):
     img = Image.new('RGBA', (1000,1000), (255,255,255,255))
     draw = ImageDraw.Draw(img)
 
-    for (x,y,z) in hit_graph['nodes']:
+    for (x,y,z,_) in hit_graph['nodes']:
         (x, y) = (1000 * x, 1000 * y + 500)
         draw.ellipse([x-1,y-1,x+1,y+1], fill='#000000')
 
     for (u, v, t) in zip(hit_graph['senders'], hit_graph['receivers'], hit_graph['edges']):
-        (x1, y1, z1) = hit_graph['nodes'][u]
-        (x2, y2, z2) = hit_graph['nodes'][v]
+        (x1, y1, z1,_) = hit_graph['nodes'][u]
+        (x2, y2, z2,_) = hit_graph['nodes'][v]
         (x1, y1) = (1000 * x1, 1000 * y1 + 500)
         (x2, y2) = (1000 * x2, 1000 * y2 + 500)
         if (t > 0.05):
             draw.line([(x1, y1), (x2, y2)], fill=(255,255,255,int(255*(1-t))))
     
-    os.makedirs('figures/' + folder, exist_ok=True)
-    img.save('figures/' + folder + '/track%d.png' % name, "PNG")
+    os.makedirs(folder, exist_ok=True)
+    img.save(folder + '/track%d.png' % name, "PNG")
 
 
 if __name__ == '__main__':

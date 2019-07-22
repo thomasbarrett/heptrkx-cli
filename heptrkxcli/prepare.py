@@ -45,7 +45,7 @@ def filter_segments(hits1, hits2, phi_slope_max, z0_max):
     DataFrame hit label-indices in hits1 and hits2, respectively.
     """
     # Start with all possible pairs of hits
-    keys = ['r', 'phi', 'z', 'theta','particle_id']
+    keys = ['r', 'phi', 'z', 'count', 'theta','particle_id']
     a = hits1[keys].assign(temp=0).reset_index()
     b = hits2[keys].assign(temp=0).reset_index()
     hit_pairs = a.merge(b, on='temp', suffixes=('_1', '_2')).drop(columns=['temp'])
@@ -63,10 +63,13 @@ def filter_segments(hits1, hits2, phi_slope_max, z0_max):
     dr = hit_pairs.r_2 - hit_pairs.r_1
     phi_slope = dphi / dr
     z0 = hit_pairs.z_1 - hit_pairs.r_1 * dz / dr
-
+    scattering = 
+    
     hit_pairs = hit_pairs.assign(
         t = (hit_pairs['particle_id_1'] == hit_pairs['particle_id_2'])*1,
         dphi = dphi,
+        count = hit_pairs['count_1'],
+        scattering = 
         dtheta = dtheta,
         dr = dr,
         dz = dz
@@ -74,7 +77,7 @@ def filter_segments(hits1, hits2, phi_slope_max, z0_max):
 
     # Filter segments according to criteria
     good_seg_mask = (phi_slope.abs() < phi_slope_max) & (z0.abs() < z0_max)
-    return hit_pairs[['index_1', 'index_2', 't','dr','dphi','dtheta','dz']][good_seg_mask]
+    return hit_pairs[['index_1', 'index_2', 't','dr','count','dphi','dtheta','dz']][good_seg_mask]
 
 def select_hits(hits, truth, particles, sensors=None, pt_min=0):
     """
@@ -99,10 +102,16 @@ def select_hits(hits, truth, particles, sensors=None, pt_min=0):
     r = np.sqrt(hits.x**2 + hits.y**2)
     theta = np.arctan2(hits.z, hits.x)
     phi = np.arctan2(hits.y, hits.x)
-
+    
+    
     # Select the data columns we need
     hits = (hits.assign(r=r, phi=phi, theta=theta)
             .merge(truth[['hit_id', 'particle_id']], on='hit_id'))
+
+
+    hits_count = hits['particle_id'].value_counts().drop(0).reset_index()
+    hits_count.columns = ['particle_id', 'count']
+    hits = hits.merge(hits_count, how='left', on="particle_id").fillna(1)
 
     # Remove duplicate hits
     hits = hits.set_index(['particle_id', 'volume_id', 'layer_id'], drop=False)
@@ -240,7 +249,7 @@ def process_event(prefix, config):
         target_path = os.path.join(os.path.join(output_dir, 'target'), '%s_g%03i' % (base_prefix, index))
         save_graph(target_path, {
             'nodes': nodes.to_numpy(),
-            'edges': edges[['t']].to_numpy(),
+            'edges': edges[['t','count']].to_numpy(),
             'senders': edges['index_1'].to_numpy(),
             'receivers': edges['index_2'].to_numpy()
         })
