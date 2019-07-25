@@ -4,7 +4,7 @@ Define a *sparse n-tensor* as two-tuple (indices, values) of parallel arrays whe
 Define a *graph* as a four-tuple (nodes, edges, senders, receivers) where *nodes* is an array of size N containing node features, and *edges*, *senders*, *receivers* are parallel arrays of size E containing edge features, sending nodes indices, and recieving node indices respectively.
 
 ## Truth Coefficient Matrix
-The truth coefficient matrix TCM is an N x N sparse 2-tensor where each element a<sub>i,j</sub> in TCM equals the truth value (t) for the edge connecting the ith and jth node (N_i and N_j). If an edge does not exist between nodes<sub>i</sub> and nodes<sub>j</sub> then the element is zero. Note that each column of the TCM represents the outgoing edges for nodes<sub>i</sub> and that each row of TCM represents the incoming edges for nodes<sub>j</sub>. This matrix can be constructed by the following operations.
+The truth coefficient matrix TCM is an N x N sparse 2-tensor where each element a_(i,j) in TCM equals the truth value (t) for the edge connecting the ith and jth node (n_i and n_j). If an edge does not exist between n_i and nodes<sub>j</sub> then the element is zero. Note that each column of the TCM represents the outgoing edges for n_i and that each row of TCM represents the incoming edges for n_j. This matrix can be constructed by the following operations.
 
 1. Construct index vector from senders and recievers list (u,v)
 2. Construct value vector from truth vector
