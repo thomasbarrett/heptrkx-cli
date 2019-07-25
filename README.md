@@ -12,7 +12,7 @@ The truth coefficient tensor TCT is a sparse N x N x N 3-tensor where each eleme
 ## Triplet Parameter Tensor
 The Triplet Parameter Tensor TPT is a N x N x N *sparse 3-tensor* where each element a_(i,j,k) in the TPT contains the helix parameter for the triple (n_i, n_j, n_k). This *sparse 3-tensor* can be constructed directly from our triplet parameter dataset since each element in the dataset contain a triplet of node indices and an associated radius.
 
-## Node Parameters
+## Node Parameter Regression
 We can compute our node parameters by calculating the non-zero mean of each matrix in the TPT. This operation will output a size E vector. We can the train our edge classifier by regression using the node parameters computed from truth values output from the edge classifier. 
 
 
