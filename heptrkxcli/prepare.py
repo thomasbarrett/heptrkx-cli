@@ -2,6 +2,7 @@
 import os
 import logging
 import glob
+import time
 from multiprocessing import Pool
 
 # Externals
@@ -63,16 +64,14 @@ def filter_segments(hits1, hits2, phi_slope_max, z0_max):
     dr = hit_pairs.r_2 - hit_pairs.r_1
     phi_slope = dphi / dr
     z0 = hit_pairs.z_1 - hit_pairs.r_1 * dz / dr
-    scattering = 
     
     hit_pairs = hit_pairs.assign(
         t = (hit_pairs['particle_id_1'] == hit_pairs['particle_id_2'])*1,
-        dphi = dphi,
+        dphi = dphi / (2 * np.pi) * 8,
         count = hit_pairs['count_1'],
-        scattering = 
-        dtheta = dtheta,
-        dr = dr,
-        dz = dz
+        dtheta = dtheta / (2 * np.pi) * 2,
+        dr = dr / 1000,
+        dz = dz / 1000
     )
 
     # Filter segments according to criteria
@@ -138,7 +137,7 @@ def section_iterator(hits, config):
         if phi_region < phi_sections and theta_region < theta_sections:
             yield (index, group.reset_index(drop=True))
 
-def choose_truth(hits):
+def choose_truth(hits, edges):
     
     hits = hits.assign(t = lambda hit: np.sqrt(hit.x**2 + hit.y**2 + hit.z**2))
     hits = hits.sort_values(by=['particle_id','t'])
@@ -166,11 +165,26 @@ def choose_truth(hits):
             thcy = lambda n: fit_circle((n.x0,n.y0),(n.x,n.y),(n.x2,n.y2))[1],
             thr  = lambda n: fit_circle((n.x0,n.y0),(n.x,n.y),(n.x2,n.y2))[2])
 
-    return hits
+
+    '''
+    for edge in edges.itertuples():
+        pre_edges = edges[edges['index_2'] == edge.index_1]
+        similarity_list = []
+        for pre_edge in pre_edges.itertuples():
+            v1 = np.array([edge.dr, edge.dphi])
+            v1 = v1 / np.sqrt(v1[0] ** 2 + v1[1] ** 2)
+            v2 = np.array([pre_edge.dr, pre_edge.dphi])
+            v2 = v2 / np.sqrt(v2[0] ** 2 + v2[1] ** 2)
+            similarity = np.dot(v1, v2)
+            similarity_list.append(similarity)
+    '''  
+        
+    return (hits, edges)
 
 def normalize_nodes(hits, config):
     phi_mean = hits['phi'].mean()
     theta_mean = hits['theta'].mean()
+    print(theta_mean)
     hits = hits.assign(phi = hits.phi - phi_mean, theta = hits.theta - theta_mean)
     phi_sections = config['n_phi_sections']
     theta_sections = config['n_theta_sections']
@@ -236,7 +250,7 @@ def process_event(prefix, config):
         # Compute data to be saved
         ids   = nodes['hit_id']
         edges = choose_edges(nodes, sensor_pairs, selection_config)
-        #truth = choose_truth(nodes)
+        #(node_truth, edge_truth) = choose_truth(nodes, edges)
         nodes = normalize_nodes(nodes, selection_config)
         # Save graph to file
         input_path = os.path.join(os.path.join(output_dir, 'input'), '%s_g%03i' % (base_prefix, index))
@@ -253,8 +267,11 @@ def process_event(prefix, config):
             'senders': edges['index_1'].to_numpy(),
             'receivers': edges['index_2'].to_numpy()
         })
+
 def prepare():
     """Main function"""
+    array = np.load('../array.npy')
+    print(array)
 
     # Setup logging
     log_format = '%(message)s'
@@ -278,7 +295,12 @@ def prepare():
 
     logging.info('Writing outputs to ' + outdir)
 
-    pool = Pool(20)
-    pool.starmap(process_event, zip(file_prefixes, [config] * n_events), chunksize=10)
+    #pool = Pool(20)
+    #pool.starmap(process_event, zip(file_prefixes, [config] * n_events), chunksize=10)
+    for prefix in file_prefixes:
+        start = time.time()
+        process_event(prefix, config)
+        end = time.time() - start
+        print(end)
 
     logging.info('All done!')

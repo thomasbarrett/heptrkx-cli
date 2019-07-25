@@ -21,34 +21,30 @@ def batch_iterator(base_dir, n_batch, test=False):
     '''
     Iterates through batches of size n_batch found at directory base_dir
     '''
-    input_files = glob.glob(os.path.join(os.path.join(base_dir,'input'),'*'))
-    target_files = glob.glob(os.path.join(os.path.join(base_dir,'target'),'*'))
+    input_files = glob.glob(os.path.join(base_dir,'*'))
     input_files.sort()
-    target_files.sort()
-    n_events = len(target_files) - 100
+    n_events = len(input_files) - 100
     batch_count = int(n_events/n_batch)    
 
     if test:
         input_graphs = []
-        target_graphs = []
+        truth_values = np.array([])
         for file_index in range(0, n_batch):
             index = n_events + file_index
-            input_graph = load_graph(input_files[index])
-            target_graph = load_graph(target_files[index])
-            input_graphs.append(input_graph)
-            target_graphs.append(target_graph) 
-        yield 0, 0, input_graphs, target_graphs
+            (graph, truth, triplets) = load_graph(input_files[index])
+            input_graphs.append(graph)
+            truth_values = np.append(truth_values, truth)
+        yield 0, 0, input_graphs, truth_values
 
     for batch_index in range(0, batch_count):
         input_graphs = []
-        target_graphs = []
+        truth_values = np.array([])
         for file_index in range(0, n_batch):
             index = batch_index * n_batch + file_index
-            input_graph = load_graph(input_files[index])
-            target_graph = load_graph(target_files[index])
-            input_graphs.append(input_graph)
-            target_graphs.append(target_graph)
-        yield batch_index, batch_count, input_graphs, target_graphs
+            (graph, truth, triplets) = load_graph(input_files[index])
+            input_graphs.append(graph)
+            truth_values = np.append(truth_values, truth)
+        yield batch_index, batch_count, input_graphs, truth_values
     
     return
 
@@ -83,9 +79,9 @@ def main():
     # They are automatically generated from the first graph in the first batch.
     # By assigning force_dynamic_num_graphs=True, we ensure the the placeholders
     # accepts graphs of any size.
-    _, _, input_graphs, target_graphs = batch_iterator(base_dir, batch_size).__next__()
+    _, _, input_graphs, truth_values = batch_iterator(base_dir, batch_size).__next__()
     input_ph = utils_tf.placeholders_from_data_dicts(input_graphs[0:1], force_dynamic_num_graphs=True)
-    target_ph = utils_tf.placeholders_from_data_dicts(target_graphs[0:1], force_dynamic_num_graphs=True)
+    truth_ph = tf.placeholder(tf.float64, shape=[None])
 
     # Here, we define our computational graphs.
     # - First, we compute the model output using the graph_nets library.
@@ -95,17 +91,15 @@ def main():
     #   plays into this. I need to figure out the details.
     # -  Finally, we will minimize training loss using the Adam Optimizer algorithm. 
     model_outputs = SegmentClassifier()(input_ph, num_processing_steps_tr)
-    
-    edge_losses = [tf.losses.log_loss(tf.transpose(target_ph.edges)[0], tf.transpose(output.edges)[0]) for output in model_outputs]
-
-    training_loss = tf.divide(tf.reduce_sum(edge_losses), num_processing_steps_tr)
+    triplet_output = triplets_ph[1] 
+    edge_losses = tf.losses.log_loss(truth_ph, tf.transpose(model_outputs[-1].edges)[0])
+    training_loss = edge_losses
     training_optimizer = tf.train.AdamOptimizer(learning_rate).minimize(training_loss)
 
     # Allows a graph containing `None` fields to be run in a Tensorflow
     # session. This is currently not needed since we have data for all
     # elements in the graph, including useless data for the global variable.
     input_ph = utils_tf.make_runnable_in_session(input_ph)
-    target_ph = utils_tf.make_runnable_in_session(target_ph)
 
     # According to documentation, represent a connection between the client
     # program and a C++ runtime. See the following link for more information.
@@ -128,17 +122,15 @@ def main():
     for iteration in range(0, num_training_iterations):
         
         # Iterate through all of the batches and retrieve batch data accordingly.
-        for batch_index, batch_count, input_batch, target_batch in batch_iterator(base_dir, batch_size):
+        for batch_index, batch_count, input_batch, truth_batch in batch_iterator(base_dir, batch_size):
             
             # Turn our data dictionary into a proper graphs.GraphsTuple
             # object for use with graph_nets library. 
             input_graphs = utils_np.data_dicts_to_graphs_tuple(input_batch)
-            target_graphs = utils_np.data_dicts_to_graphs_tuple(target_batch)
 
             # The utility function make_runnable_in_session to fix problems resulting from
             # None fields in graph.
             input_graphs = utils_tf.make_runnable_in_session(input_graphs)
-            target_graphs = utils_tf.make_runnable_in_session(target_graphs)
 
             # Create a feed dictionary that properly maps graph properties.
             # Documentation states that this is only necessary in the case of
@@ -148,14 +140,14 @@ def main():
             # We must pass both the input and target graphs into our computation
             # graph, so we update our feed dictionary with new properties using
             # the same method described above.
-            feed_dict.update(utils_tf.get_feed_dict(target_ph, target_graphs))
+
+            feed_dict.update({truth_ph: truth_batch})
         
             # Run our computation graph using the feed_dictionary created above.
             # Currently, we appear to be computing multiple values... I need
             # to figure out what each of them means.
             train_values = sess.run({
                 "step": training_optimizer,
-                "target": target_ph,
                 "loss": training_loss,
                 "outputs": model_outputs
             }, feed_dict=feed_dict)
@@ -167,19 +159,20 @@ def main():
             if output_time_lapse > 120:
                 last_output = current_time
 
+
                 # Create a feed dict with 10 training events. These events have not been
                 # used during testing, so 
-                _, _, input_batch, target_batch = batch_iterator(base_dir, 10, test=True).__next__()
+                
+                _, _, input_batch, truth_batch = batch_iterator(base_dir, 10, test=True).__next__()
+
                 input_graphs = utils_np.data_dicts_to_graphs_tuple(input_batch)
-                target_graphs = utils_np.data_dicts_to_graphs_tuple(target_batch)
                 input_graphs = utils_tf.make_runnable_in_session(input_graphs)
-                target_graphs = utils_tf.make_runnable_in_session(target_graphs)
                 feed_dict = utils_tf.get_feed_dict(input_ph, input_graphs)
-                feed_dict.update(utils_tf.get_feed_dict(target_ph, target_graphs))
+                feed_dict.update({truth_ph: truth_batch})
 
                 train_values = sess.run({
-                    "target": target_ph,
                     "loss": training_loss,
+                    "target": truth_ph,
                     "outputs": model_outputs
                 }, feed_dict=feed_dict)
 
@@ -189,12 +182,11 @@ def main():
 
                 # Compute purity and efficiency for every cutoff from 0 to 1 in steps of 0.01
                 for filter_cutoff in np.linspace(0,1,100):
-                    target = np.concatenate([ np.transpose(target_batch[i]['edges'])[0] for i in range(0,10)])
                     result = np.transpose(np.where(train_values['outputs'][-1].edges > filter_cutoff, 1, 0))[0]
-                    correct = np.sum(np.where(np.logical_and(result == target, result == np.ones(result.shape)), 1, 0))
+                    correct = np.sum(np.where(np.logical_and(result == truth_batch, result == np.ones(result.shape)), 1, 0))
                     purity = correct / np.sum(result) if np.sum(result) != 0 else 1.0
                     purity_list.append(purity)
-                    efficiency = correct/ np.sum(target)
+                    efficiency = correct/ np.sum(truth_batch)
                     efficiency_list.append(efficiency)
                     cutoff_list.append(filter_cutoff)
 
@@ -218,6 +210,14 @@ def main():
 
                 os.makedirs(os.path.join(results_dir, 'models'), exist_ok=True)
                 saver.save(sess, os.path.join(results_dir, 'models/model{}.ckpt'.format(output_index)))
+                
+                visualize_hitgraph(os.path.join(results_dir, 'images'), output_index, {
+                    'nodes': input_batch[0]['nodes'],
+                    'edges': truth_batch,
+                    'senders': input_batch[0]['senders'],
+                    'receivers': input_batch[0]['receivers']
+                })
+
 
                 print('\repoch: {} progress: {:.4f} loss: {:.4f}'.format(iteration, batch_index/batch_count, train_values['loss']))  
 

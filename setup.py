@@ -14,6 +14,8 @@ setup(name="heptrkx-cli",
         'pyyaml',
         'numpy',
         'pandas',
+        'tensorflow-gpu',
+        'graph-nets'
     ],
     dependency_links=[
         'https://github.com/LAL/trackml-library/tarball/master#egg=trackml-library',
