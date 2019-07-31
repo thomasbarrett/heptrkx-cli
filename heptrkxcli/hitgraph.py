@@ -19,7 +19,6 @@ def load_graph_old(filename):
             'globals': np.array([0.]).astype(np.float32)
         }
 
-def compute
 def load_graph(filename):
 	# subdirectories for edge, path, and triplet data
 	node_path = path.join(filename, 'nodes')
@@ -37,7 +36,8 @@ def load_graph(filename):
 	edges = np.transpose(np.vstack((
 		np.load(path.join(edge_path, 'dr.npy')),
 		np.load(path.join(edge_path, 'dphi.npy')),
-		np.load(path.join(edge_path, 'dz.npy'))
+		np.load(path.join(edge_path, 'dz.npy')),
+		np.load(path.join(edge_path, 'mrphi.npy')),
 	)))
 
 	# load sender data for input graph
@@ -47,15 +47,17 @@ def load_graph(filename):
 	receivers = np.load(path.join(edge_path, 'receivers.npy'))
 
 	# load triplet data for loss function
+	
 	triplets = np.vstack((
-		np.load(path.join(triplet_path, 'node1.npy')),
-		np.load(path.join(triplet_path, 'node2.npy')),
-		np.load(path.join(triplet_path, 'node3.npy')),
+		np.load(path.join(triplet_path, 'incoming_edge_index.npy')),
+		np.load(path.join(triplet_path, 'node_index.npy')),
+		np.load(path.join(triplet_path, 'outgoing_edge_index.npy')),
 		np.load(path.join(triplet_path, 'radius.npy'))
 	))
 
 	# load truth value for loss function
 	truth = np.load(path.join(edge_path, 'truth.npy'))
+	probability = np.load(path.join(edge_path, 'probability.npy'))
 
 	graph = {
 		'nodes': nodes,
@@ -65,5 +67,4 @@ def load_graph(filename):
 		'receivers': receivers
 	}
 
-
-	return (graph, truth, triplets)
+	return (graph, truth, probability, triplets)

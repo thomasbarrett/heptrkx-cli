@@ -16,6 +16,7 @@ from nx_graph.utils_train import load_config
 from nx_graph.model import SegmentClassifier
 from heptrkxcli.hitgraph import load_graph
 from heptrkxcli.visualize import visualize_hitgraph
+from heptrkxcli.triplet import node_parameters
 
 def batch_iterator(base_dir, n_batch, test=False):
     '''
@@ -28,23 +29,25 @@ def batch_iterator(base_dir, n_batch, test=False):
 
     if test:
         input_graphs = []
-        truth_values = np.array([])
-        for file_index in range(0, n_batch):
+        for file_index in range(0, 1):
             index = n_events + file_index
-            (graph, truth, triplets) = load_graph(input_files[index])
+            (graph, truth, probability, triplets) = load_graph(input_files[index])
             input_graphs.append(graph)
-            truth_values = np.append(truth_values, truth)
-        yield 0, 0, input_graphs, truth_values
+            truth_values = truth
+            triplet_list = triplets
+            probability_list = probability
+        yield 0, 0, input_graphs, truth_values, triplet_list, probability_list
 
     for batch_index in range(0, batch_count):
         input_graphs = []
-        truth_values = np.array([])
-        for file_index in range(0, n_batch):
+        for file_index in range(0, 1):
             index = batch_index * n_batch + file_index
-            (graph, truth, triplets) = load_graph(input_files[index])
+            (graph, truth, probability, triplets) = load_graph(input_files[index])
             input_graphs.append(graph)
-            truth_values = np.append(truth_values, truth)
-        yield batch_index, batch_count, input_graphs, truth_values
+            truth_values = truth
+            triplet_list = triplets
+            probability_list = probability
+        yield batch_index, batch_count, input_graphs, truth_values, triplet_list, probability_list
     
     return
 
@@ -79,9 +82,10 @@ def main():
     # They are automatically generated from the first graph in the first batch.
     # By assigning force_dynamic_num_graphs=True, we ensure the the placeholders
     # accepts graphs of any size.
-    _, _, input_graphs, truth_values = batch_iterator(base_dir, batch_size).__next__()
+    _, _, input_graphs, truth_values, triplets, probability = batch_iterator(base_dir, batch_size).__next__()
     input_ph = utils_tf.placeholders_from_data_dicts(input_graphs[0:1], force_dynamic_num_graphs=True)
     truth_ph = tf.placeholder(tf.float64, shape=[None])
+    triplets_ph = tf.placeholder(tf.float64, shape=[4, None])
 
     # Here, we define our computational graphs.
     # - First, we compute the model output using the graph_nets library.
@@ -91,10 +95,12 @@ def main():
     #   plays into this. I need to figure out the details.
     # -  Finally, we will minimize training loss using the Adam Optimizer algorithm. 
     model_outputs = SegmentClassifier()(input_ph, num_processing_steps_tr)
-    triplet_output = triplets_ph[1] 
-    edge_losses = tf.losses.log_loss(truth_ph, tf.transpose(model_outputs[-1].edges)[0])
+    edge_losses = tf.losses.log_loss(tf.square(truth_ph), tf.transpose(model_outputs[-1].edges)[0])
+    node_params = node_parameters(input_ph, model_outputs[-1].edges, triplets_ph)
+    node_params_truth = node_parameters(input_ph, truth_ph, triplets_ph)
+    node_params_error = tf.losses.mean_squared_error(node_params_truth, node_params)
     training_loss = edge_losses
-    training_optimizer = tf.train.AdamOptimizer(learning_rate).minimize(training_loss)
+    training_optimizer = tf.train.AdamOptimizer(0.001).minimize(training_loss)
 
     # Allows a graph containing `None` fields to be run in a Tensorflow
     # session. This is currently not needed since we have data for all
@@ -108,12 +114,13 @@ def main():
  
     # Create session saver
     saver = tf.train.Saver()
+    saver.restore(sess, 'results/mrphi/models/model18.ckpt')
 
     # Our computation graph uses global variables, so we are required to
     # initialize them for the first pass. See the following link for more
     # information on Tensorflow variables
     # https://www.tensorflow.org/guide/variables
-    sess.run(tf.global_variables_initializer())
+    # sess.run(tf.global_variables_initializer())
 
     output_index = 0 
     last_output = time.time()
@@ -122,7 +129,7 @@ def main():
     for iteration in range(0, num_training_iterations):
         
         # Iterate through all of the batches and retrieve batch data accordingly.
-        for batch_index, batch_count, input_batch, truth_batch in batch_iterator(base_dir, batch_size):
+        for batch_index, batch_count, input_batch, truth_batch, triplets, probability in batch_iterator(base_dir, batch_size):
             
             # Turn our data dictionary into a proper graphs.GraphsTuple
             # object for use with graph_nets library. 
@@ -141,8 +148,9 @@ def main():
             # graph, so we update our feed dictionary with new properties using
             # the same method described above.
 
-            feed_dict.update({truth_ph: truth_batch})
-        
+            feed_dict.update({truth_ph: probability})
+            feed_dict.update({triplets_ph: triplets})
+
             # Run our computation graph using the feed_dictionary created above.
             # Currently, we appear to be computing multiple values... I need
             # to figure out what each of them means.
@@ -155,23 +163,24 @@ def main():
             # Compute the time lapse from last save-evaluate-visualize action
             current_time = time.time()
             output_time_lapse = current_time - last_output
-            
-            if output_time_lapse > 120:
-                last_output = current_time
 
+            if output_time_lapse > 30:
+                last_output = current_time
 
                 # Create a feed dict with 10 training events. These events have not been
                 # used during testing, so 
                 
-                _, _, input_batch, truth_batch = batch_iterator(base_dir, 10, test=True).__next__()
+                _, _, input_batch, truth_batch, triplets, probability = batch_iterator(base_dir, 1, test=True).__next__()
 
                 input_graphs = utils_np.data_dicts_to_graphs_tuple(input_batch)
                 input_graphs = utils_tf.make_runnable_in_session(input_graphs)
                 feed_dict = utils_tf.get_feed_dict(input_ph, input_graphs)
-                feed_dict.update({truth_ph: truth_batch})
+                feed_dict.update({truth_ph: probability})
+                feed_dict.update({triplets_ph: triplets})
 
                 train_values = sess.run({
                     "loss": training_loss,
+                    "error": node_params_error,
                     "target": truth_ph,
                     "outputs": model_outputs
                 }, feed_dict=feed_dict)
@@ -200,6 +209,7 @@ def main():
                 plt.savefig(os.path.join(results_dir, 'figures/purity_vs_efficiency{:02d}.png'.format(output_index)))
                 plt.close()
 
+
                 # Write the purity-efficiency
                 csv_path = os.path.join(results_dir, 'figures/purity_vs_efficiency{:02d}.csv'.format(output_index))
                 with open(csv_path, 'w') as csvfile:
@@ -218,8 +228,15 @@ def main():
                     'receivers': input_batch[0]['receivers']
                 })
 
+                visualize_hitgraph(os.path.join(results_dir, 'images'), output_index, {
+                    'nodes': input_batch[0]['nodes'],
+                    'edges': truth_batch,
+                    'senders': input_batch[0]['senders'],
+                    'receivers': input_batch[0]['receivers']
+                })
 
-                print('\repoch: {} progress: {:.4f} loss: {:.4f}'.format(iteration, batch_index/batch_count, train_values['loss']))  
+
+                print('\repoch: {} progress: {:.4f} loss: {:.4f} error: {:.4f}'.format(iteration, batch_index/batch_count, train_values['loss'], train_values['error']))  
 
                 output_index += 1
 

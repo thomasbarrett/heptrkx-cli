@@ -10,8 +10,8 @@ model:
 train:
     log_name: big_new_edge_features.log
     time_lapse:  120  # how often save checkpoint in seconds
-    batch_size: 4
+    batch_size: 1
     iterations: 20
     iter_per_job: 2000
     n_iters: 5
-    learning_rate: 0.001
+    learning_rate: 0.05
