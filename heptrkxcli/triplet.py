@@ -23,7 +23,7 @@ def triplet_parameter_tensor(n_nodes, edgei, node, edgeo, truth, parameters):
     triplet_edge2_truth = tf.gather(truth, edgeo)
     triplet_edges_truth = tf.multiply(triplet_edge1_truth, triplet_edge2_truth)
     triplet_values = tf.multiply(tf.squeeze(triplet_edges_truth), parameters)
-    print(triplet_values.shape)
+    
     # Construct sparse tensor with newly computed triplet values
     indices = tf.stack([edgei, node, edgeo], axis=1)
     triplet_tensor = tf.SparseTensor(indices=indices, values=triplet_values, dense_shape=[n_nodes] * 3)
@@ -40,10 +40,9 @@ def node_parameters(graph, truth, triplets):
     edgei = tf.cast(triplets[0], tf.int64)
     node = tf.cast(triplets[1], tf.int64)
     edgeo = tf.cast(triplets[2], tf.int64)
-    radius = tf.cast(triplets[3], tf.float64)
+    radius = tf.divide(1, tf.cast(triplets[3], tf.float64))
    
     triplet_tensor = triplet_parameter_tensor(n_nodes, edgei, node, edgeo, tf.cast(truth, tf.float64), radius)
-    return triplet_tensor.values
 
     triplet_sum = tf.sparse_reduce_sum(triplet_tensor, axis=[0,2])
 
@@ -75,9 +74,9 @@ def edge_parameters(graph, truth, triplets):
     node = tf.cast(triplets[1], tf.int64)
     edgeo = tf.cast(triplets[2], tf.int64)
     radius = tf.cast(triplets[3], tf.float64)
-   
+    radius = radius / tf.reduce_max(radius)
+    
     triplet_tensor = triplet_parameter_tensor(n_nodes, edgei, node, edgeo, tf.cast(truth, tf.float64), radius)
-    return triplet_tensor.values
 
     triplet_sum = tf.sparse_reduce_sum(triplet_tensor, axis=[0,2])
 
@@ -95,4 +94,5 @@ def edge_parameters(graph, truth, triplets):
                                     triplet_count_padded)
 
     triplet_average = tf.divide(triplet_sum, triplet_count_padded_safe)
+
     return triplet_average

@@ -57,7 +57,6 @@ def load_graph(filename):
 
 	# load truth value for loss function
 	truth = np.load(path.join(edge_path, 'truth.npy'))
-	probability = np.load(path.join(edge_path, 'probability.npy'))
 
 	graph = {
 		'nodes': nodes,
@@ -67,4 +66,4 @@ def load_graph(filename):
 		'receivers': receivers
 	}
 
-	return (graph, truth, probability, triplets)
+	return (graph, truth, triplets)

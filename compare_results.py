@@ -43,8 +43,9 @@ def main():
         plt.plot(data[model]['purity'], data[model]['efficiency'], label=model)
 
     plt.axis([0, 1, 0, 1])
-    plt.xlabel('Purity')
-    plt.ylabel('Efficiency')   
+    plt.xlabel('Precision')
+    plt.ylabel('Recall')   
+    plt.title('Precision - Recall')   
     plt.legend()
     plt.savefig(os.path.join('results', sys.argv[1] + '.png'))
     plt.close()

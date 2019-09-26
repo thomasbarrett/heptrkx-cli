@@ -39,8 +39,8 @@ def visualize_hitgraph(folder, name, hit_graph):
         (x2, y2, z2) = hit_graph['nodes'][v]
         (x1, y1) = (1000 * x1, 1000 * y1 + 500)
         (x2, y2) = (1000 * x2, 1000 * y2 + 500)
-        if (t > 0.05):
-            draw.line([(x1, y1), (x2, y2)], fill=(255,255,255,int(255*(1-t))))
+        if (t > 0.04):
+            draw.line([(x1, y1), (x2, y2)], fill=(255,255,255,0))
     
     os.makedirs(folder, exist_ok=True)
     img.save(folder + '/track%d.png' % name, "PNG")
